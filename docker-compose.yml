@@ -1,0 +1,105 @@
+version: '3.4'
+
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.6
+    container_name: elasticsearch
+    environment:
+      - xpack.security.enabled=false
+      - discovery.type=single-node
+    restart: always
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nproc: 65535
+      nofile:
+        soft: 65535
+        hard: 65535
+    ports:
+      - 9200:9200
+    volumes:
+      - data01:/usr/share/elasticsearch/data
+    networks:
+      - elastic
+    logging:
+        driver: "json-file"
+        options:
+           max-size: "500m"
+           max-file: "5"
+    healthcheck:
+      interval: 30s
+      retries: 10
+      test: curl -s http://localhost:9200/_cluster/health | grep -vq '"status":"red"'
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.17.6
+    container_name: kibana
+    restart: always
+    ports:
+      - 5602:5601
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - elastic
+    logging:
+        driver: "json-file"
+        options:
+          max-size: "100m"
+          max-file: "5"
+    healthcheck:
+      interval: 10s
+      retries: 20
+      test: curl --write-out 'HTTP %{http_code}' --fail --silent --output /dev/null http://localhost:5601/api/status
+
+  apm:
+    image: docker.elastic.co/apm/apm-server:7.17.6
+    container_name: apm
+    environment:
+      - apm-server.rum=true
+    restart: always
+    command: >
+      apm-server -e
+        -E apm-server.rum.enabled=true
+        -E setup.template.settings.index.number_of_replicas=0
+        -E apm-server.kibana.enabled=true
+        -E apm-server.queue.mem.events=8192
+        -E apm-server.kibana.host=kibana:5601
+        -E apm-server.monitoring.enabled=true
+        -E output.elasticsearch.bulk_max_size=5120
+        -E output.elasticsearch.hosts=["elasticsearch:9200"]
+    ports:
+      - 8200:8200
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      kibana:
+        condition: service_healthy
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nproc: 65535
+      nofile:
+        soft: 65535
+        hard: 65535
+    networks:
+      - elastic
+    logging:
+        driver: "json-file"
+        options:
+          max-size: "100m"
+          max-file: "5"
+    healthcheck:
+      interval: 10s
+      retries: 12
+      test: curl --write-out 'HTTP %{http_code}' --fail --silent --output /dev/null http://localhost:8200/
+
+
+volumes:
+  data01:
+    driver: local
+networks:
+  elastic:
+    driver: bridge
