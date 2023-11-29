@@ -1,0 +1,1 @@
+# Elasticsearch-7-alone
